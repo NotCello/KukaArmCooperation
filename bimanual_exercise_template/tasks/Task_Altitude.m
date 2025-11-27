@@ -1,0 +1,73 @@
+classdef Task_Altitude < Task
+    % Inequality task to keep the robot above a minimum altitude (Z > 0.15m)
+    
+    properties
+        % No extra properties needed
+    end
+    
+    methods
+        function obj = Task_Altitude(robot_ID, taskID)
+            obj.ID = robot_ID;
+            obj.task_name = taskID;
+        end
+        
+        function updateReference(obj, robot_system)
+            % This is an inequality task. 
+            % Ideally, when active, we want to push the robot UP (+Z direction).
+            % We set a constant positive velocity.
+            
+            % Push up at 20 cm/s when active
+            obj.xdotbar = 2; 
+        end
+        
+        function updateJacobian(obj, robot_system)
+            % 1. Get the correct robot
+            if obj.ID == 'L'
+                robot = robot_system.left_arm;
+            elseif obj.ID == 'R'
+                robot = robot_system.right_arm;
+            end
+            
+            % 2. Get the Geometric Jacobian (6x7)
+            % Rows 1-3: Angular velocity
+            % Rows 4-6: Linear velocity (X, Y, Z)
+            tool_jacobian = robot.wJt;
+            
+            % 3. Extract ONLY the Linear Z row (Row 6)
+            % We only care about moving up/down.
+            J_altitude = tool_jacobian(6, :); 
+            
+            % 4. Construct the full 1x14 System Jacobian
+            if obj.ID == 'L'
+                % [ Jacobian_L(1x7), Zeros(1x7) ]
+                obj.J = [J_altitude, zeros(1, 7)];
+            elseif obj.ID == 'R'
+                % [ Zeros(1x7), Jacobian_R(1x7) ]
+                obj.J = [zeros(1, 7), J_altitude];
+            end
+        end
+        
+        function updateActivation(obj, robot_system)
+            % 1. Get the robot
+            if obj.ID == 'L'
+                robot = robot_system.left_arm;
+            elseif obj.ID == 'R'
+                robot = robot_system.right_arm;
+            end
+            
+            % 2. Get current Altitude (Z-coordinate of Tool Frame)
+            % wTt is 4x4 matrix. Position Z is at (3,4).
+            current_alt = robot.wTt(3,4);
+            
+            [cite_start]% 3. Define Limits [cite: 45, 47]
+            limit_min = 0.15;  % The hard limit (15 cm)
+            buffer = 0.17;     % Start activating slightly before (17 cm)
+            
+            % 4. Compute Activation (Inequality)
+            % Use DecreasingBellShapedFunction:
+            % If alt > 0.17 (Safe) -> Activation = 0
+            % If alt < 0.15 (Danger) -> Activation = 1
+            obj.A = DecreasingBellShapedFunction(limit_min, buffer, 0, 1, current_alt);
+        end
+    end
+end
