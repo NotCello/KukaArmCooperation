@@ -45,7 +45,7 @@ arm1.set_obj_goal(wTog)
 arm2.set_obj_goal(wTog)
 
 %Define Tasks, input values(Robot type(L,R,BM), Task Name)
-girls
+
 %Actions for each phase: go to phase, coop_motion phase, end_motion phase
 go_to={left_tool_task,right_tool_task};
 %Load Action Manager Class and load actions
