@@ -29,13 +29,15 @@ bm_sim=bimanual_sim(dt,arm1,arm2,end_time);
 
 %Define Object Shape and origin Frame
 obj_length = 0.12;
-w_obj_pos = [0.5 0 0.59]';
+w_obj_pos = [0.5 0.0 0.59]';
+w_obj_pos_L = [0.5 0.06 0.59]';
+w_obj_pos_R = [0.5 -0.06 0.59]';
 w_obj_ori = rotation(0,0,0);
 
 %Set goal frames for left and right arm, based on object frame
 %TO DO: Set arm goal frame based on object frame.
-arm1.setGoal(-w_obj_pos,-w_obj_ori,w_obj_pos,rotation(0, 0, 0));
-arm2.setGoal(w_obj_pos,w_obj_ori,w_obj_pos,rotation(0, 0, 0));
+arm1.setGoal(w_obj_pos,w_obj_ori,w_obj_pos_L,rotation(0, 0, 0));
+arm2.setGoal(w_obj_pos,w_obj_ori,w_obj_pos_R,rotation(0, 0, 0));
 
 %Define Object goal frame (Cooperative Motion)
 wTog=[rotation(0,0,0) [0.65, -0.35, 0.28]'; 0 0 0 1];
@@ -43,9 +45,7 @@ arm1.set_obj_goal(wTog)
 arm2.set_obj_goal(wTog)
 
 %Define Tasks, input values(Robot type(L,R,BM), Task Name)
-left_tool_task=tool_task("L","LT");
-right_tool_task=tool_task("R","RT");
-
+girls
 %Actions for each phase: go to phase, coop_motion phase, end_motion phase
 go_to={left_tool_task,right_tool_task};
 %Load Action Manager Class and load actions

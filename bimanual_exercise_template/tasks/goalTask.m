@@ -1,11 +1,11 @@
-classdef goal_task < Task   
+classdef goalTask < Task   
     %Tool position control for a single arm
     properties
 
     end
 
     methods
-        function obj=tool_task(robot_ID,taskID)
+        function obj=goalTask(robot_ID,taskID)
             obj.ID=robot_ID;
             obj.task_name=taskID;
         end
