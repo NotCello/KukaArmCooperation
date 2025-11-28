@@ -1,56 +1,57 @@
 classdef goalTask < Task   
-    %Tool position control for a single arm
-    properties
-
-    end
-
-    methods
-        function obj=goalTask(robot_ID,taskID)
-            obj.ID=robot_ID;
-            obj.task_name=taskID;
-        end
-        function updateReference(obj, robot_system)
-            % 1. Define Object Parameters
-            w_O_o = [0.5; 0; 0.59]; 
-            l_obj = 0.12; 
-        
-            % 2. Select Robot and Define Fixed Nominal Orientation (R_base)
-            % We define R_base so the gripper (Z-axis) points toward the object center
-            if obj.ID == 'L'
-              robot = robot_system.left_arm;
-            
-              % Left arm is at x=0, Object at x=0.5. Gripper must point +X.
-              % We rotate the World Frame (Z-up) 90 deg around Y to point Z along X.
-              R_base = [0 0 1; 0 1 0; -1 0 0];
-            
-              % Grasp the LEFT side (negative offset along X relative to object center)
-               w_P_L= [0; -l_obj/2; 0]; 
-
-            elseif obj.ID == 'R'
-              robot = robot_system.right_arm;
-            
-              % Right arm is at x=1.06, Object at x=0.5. Gripper must point -X.
-              % We rotate World Frame -90 deg around Y.
-              R_base = [0 0 -1; 0 1 0; 1 0 0];
-            
-              % Grasp the RIGHT side (positive offset along X)
-        
-              w_P_L= [0; l_obj/2; 0]; 
-            end
-
-    % 3. Calculate Goal Position (Vector addition)
-    goal_pos = w_O_o + w_P_L;
-
-    % 4. Compute Final Goal Orientation (Rotate 30 deg around Y)
-    % Use the provided rotation function: rotation(x, y, z) in radians
-    R_tilt = rotation(0, deg2rad(30), 0); 
-    R_goal = R_base * R_tilt;
+    % Task to drive the end-effector to the goal frame (robot.wTg)
     
-    % 5. Construct the Goal Transformation Matrix
-    wTg = [R_goal, goal_pos; 0 0 0 1];
-
-
-end
+    properties
+    end
+    
+    methods
+        % Constructor
+        function obj = goalTask(robot_ID, taskID)
+            obj.ID = robot_ID;
+            obj.task_name = taskID;
+        end
+        
+        % 1. Update Reference: Calculate velocity to move wTt -> wTg
+        function updateReference(obj, robot_system)
+            % Select the correct robot arm
+            if obj.ID == 'L'
+                robot = robot_system.left_arm;
+            elseif obj.ID == 'R'
+                robot = robot_system.right_arm;
+            end
+            
+            % Compute the error between the Goal Frame (wTg) and Current Frame (wTt)
+            % Note: robot.wTg is set in main.m via setGoal()
+            [v_ang, v_lin] = CartError(robot.wTg, robot.wTt);
+            
+            % Set the reference velocity
+            obj.xdotbar = [v_ang; v_lin];
+            
+            % Saturate limits to prevent instability
+            obj.xdotbar(1:3) = Saturate(obj.xdotbar(1:3), 0.5); % Angular limit
+            obj.xdotbar(4:6) = Saturate(obj.xdotbar(4:6), 0.3); % Linear limit
+        end
+        
+        % 2. Update Jacobian: Map task velocities to joint velocities
+        function updateJacobian(obj, robot_system)
+            if obj.ID == 'L'
+                robot = robot_system.left_arm;
+            elseif obj.ID == 'R'
+                robot = robot_system.right_arm;
+            end
+            
+            % Use the geometric Jacobian of the tool
+            tool_jacobian = robot.wJt;
+            
+            % Construct the full system Jacobian (14 columns: 7 Left + 7 Right)
+            if obj.ID == 'L'
+                obj.J = [tool_jacobian, zeros(6, 7)];
+            elseif obj.ID == 'R'
+                obj.J = [zeros(6, 7), tool_jacobian];
+            end
+        end
+        
+        % 3. Update Activation: Always active (Identity matrix)
         function updateActivation(obj, robot_system)
             obj.A = eye(6);
         end
