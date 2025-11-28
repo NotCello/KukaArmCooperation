@@ -59,7 +59,7 @@ classdef Task_Altitude < Task
             % wTt is 4x4 matrix. Position Z is at (3,4).
             current_alt = robot.wTt(3,4);
             
-            [cite_start]% 3. Define Limits [cite: 45, 47]
+            
             limit_min = 0.15;  % The hard limit (15 cm)
             buffer = 0.17;     % Start activating slightly before (17 cm)
             

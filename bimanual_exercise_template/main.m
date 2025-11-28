@@ -27,28 +27,42 @@ arm2=panda_arm(model,wTb2);
 %Initialize Bimanual Simulator Class
 bm_sim=bimanual_sim(dt,arm1,arm2,end_time);
 
-%Define Object Shape and origin Frame
-obj_length = 0.12;
-w_obj_pos = [0.5 0.0 0.59]';
-w_obj_ori=rotation(0,0,0);
+% --- 1. Define Object Parameters ---
+w_obj_pos = [0.5; 0.0; 0.59];
+obj_length = 0.12; % 12 cm
 
-w_pos_L = [0.5 obj_length/2 0.59]';
-w_pos_R = [0.5 -obj_length/2 0.59]';
+% --- 2. Calculate Goal POSITIONS (Grasping Points) ---
+% CHANGE: Use X-axis offsets (index 1), NOT Y-axis.
 
-tilt= rotation(0,deg2rad(30),0);
+% Left Arm Goal (Closer to Robot 1 at x=0)
+% We subtract length/2 from the center x=0.5 -> Target x = 0.44
+w_pos_L = w_obj_pos - [obj_length/2; 0; 0]; 
 
-R_base_L = rotation(pi/2,0,0);
-w_ori_L=R_base_L*tilt;
+% Right Arm Goal (Closer to Robot 2 at x=1.06)
+% We add length/2 to the center x=0.5 -> Target x = 0.56
+w_pos_R = w_obj_pos + [obj_length/2; 0; 0];
+
+% --- 3. Calculate Goal ORIENTATIONS ---
+% Assignment: "Goal orientation... is obtained by rotating the tool frames 30 deg around their y-axis"
 
 
-R_base_R = rotation(-pi/2,0,0);
-w_ori_R=R_base_R*tilt;
+% Orientation for LEFT ARM
+% Rotate base 90 deg around Y so Z (gripper) points +X (towards object)
+R_base_L = rotation(0, pi/2, 0); 
+R_tilt_L = rotation(0, deg2rad(30), 0); 
+w_ori_L  = R_base_L * R_tilt_L;
 
-%Set goal frames for left and right arm, based on object frame
-%TO DO: Set arm goal frame based on object frame.
-arm1.setGoal(w_obj_pos, w_obj_ori, w_pos_L, w_ori_L);
-arm2.setGoal(w_obj_pos, w_obj_ori, w_pos_R, w_ori_R);
+% Orientation for RIGHT ARM
+% Rotate base -90 deg around Y so Z (gripper) points -X (towards object)
+% This creates the "opposing" grasp.
+R_base_R = rotation(0, -pi/2, 0);
+R_tilt_R = rotation(0, deg2rad(-30), 0); 
+w_ori_R  = R_base_R * R_tilt_R;
 
+% --- 4. Call setGoal ---
+% Send these new targets to the robot objects
+arm1.setGoal(w_obj_pos, rotation(0,0,0), w_pos_L, w_ori_L);
+arm2.setGoal(w_obj_pos, rotation(0,0,0), w_pos_R, w_ori_R);
 %Define Object goal frame (Cooperative Motion)
 wTog=[rotation(0,0,0) [0.65, -0.35, 0.28]'; 0 0 0 1];
 arm1.set_obj_goal(wTog)
@@ -60,11 +74,11 @@ right_tool_task=tool_task("R","RT");
 goal_TaskL=goalTask("L","LT");
 goal_TaskR=goalTask("R","RT");
 
-alt_task_left=Task_Altitude("L","L_ALT");
-alt_task_right=Task_Altitude("R","R_ALT");
+alt_task_l=Task_Altitude("L","L_ALT");
+alt_task_r=Task_Altitude("R","R_ALT");
 
 %Actions for each phase: go to phase, coop_motion phase, end_motion phase
-go_to={left_tool_task,right_tool_task};
+go_to={left_tool_task,right_tool_task,alt_task_l,alt_task_r};
 %Load Action Manager Class and load actions
 actionManager = ActionManager();
 actionManager.addAction(go_to);
