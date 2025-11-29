@@ -29,6 +29,7 @@ bm_sim=bimanual_sim(dt,arm1,arm2,end_time);
 
 % --- 1. Define Object Parameters ---
 w_obj_pos = [0.5; 0.0; 0.59];
+w_obj_ori=eye(3);
 obj_length = 0.12; % 12 cm
 
 % --- 2. Calculate Goal POSITIONS (Grasping Points) ---
@@ -48,16 +49,16 @@ w_pos_R = w_obj_pos + [obj_length/2; 0; 0];
 
 % Orientation for LEFT ARM
 % Rotate base 90 deg around Y so Z (gripper) points +X (towards object)
-R_base_L = rotation(0, pi/2, 0); 
+R_EE_L = rotation(0, pi/2, 0); 
 R_tilt_L = rotation(0, deg2rad(30), 0); 
-w_ori_L  = R_base_L * R_tilt_L;
+w_ori_L  = R_EE_L * R_tilt_L;
 
 % Orientation for RIGHT ARM
 % Rotate base -90 deg around Y so Z (gripper) points -X (towards object)
 % This creates the "opposing" grasp.
-R_base_R = rotation(0, -pi/2, 0);
+R_EE_R = rotation(0, -pi/2, 0);
 R_tilt_R = rotation(0, deg2rad(-30), 0); 
-w_ori_R  = R_base_R * R_tilt_R;
+w_ori_R  = R_EE_R * R_tilt_R;
 
 % --- 4. Call setGoal ---
 % Send these new targets to the robot objects
@@ -68,20 +69,48 @@ wTog=[rotation(0,0,0) [0.65, -0.35, 0.28]'; 0 0 0 1];
 arm1.set_obj_goal(wTog)
 arm2.set_obj_goal(wTog)
 
+
+
+%% second step
+wTo_initial=[w_obj_ori, w_obj_pos; 0 0 0 1];
+wTt_L_goal=[w_ori_L, w_pos_L; 0 0 0 1];
+wTt_R_goal=[w_ori_R, w_pos_R; 0 0 0 1];
+
+tL_T_o=inv(wTt_L_goal) * wTo_initial;
+tR_T_o=inv(wTt_R_goal) * wTo_initial;
+
+wTog = [rotation(0,0,0), [0.65; -0.35; 0.28]; 0 0 0 1];
+
+wTt_L_grasp = arm1.wTt; % Get actual tool pose
+wTo_grasp   = [eye(3), w_obj_pos; 0 0 0 1]; % Object is at w_obj_pos, no rotation
+tL_T_o      = inv(wTt_L_grasp) * wTo_grasp; % The magic "stick" matrix
+
+% Right Arm Offset
+wTt_R_grasp = arm2.wTt;
+tR_T_o      = inv(wTt_R_grasp) * wTo_grasp;
+
+% 2. DEFINE THE COOP TASK WITH OFFSETS
+% Pass these offsets to your CoopTask class!
+wTog = [rotation(0,0,0), [0.65; -0.35; 0.28]; 0 0 0 1]; % Final Goal
+coop_task = BimanualRigidConstraint_Task(tL_T_o, tR_T_o, wTog, 'CoopMove');
+
+% coop_task=BimanualRigidConstraint_Task(tL_T_o,tR_T_o,wTog,'Coop');
+
 %Define Tasks, input values(Robot type(L,R,BM), Task Name)
 left_tool_task=tool_task("L","LT");
 right_tool_task=tool_task("R","RT");
-goal_TaskL=goalTask("L","LT");
-goal_TaskR=goalTask("R","RT");
+
 
 alt_task_l=Task_Altitude("L","L_ALT");
 alt_task_r=Task_Altitude("R","R_ALT");
 
 %Actions for each phase: go to phase, coop_motion phase, end_motion phase
-go_to={left_tool_task,right_tool_task,alt_task_l,alt_task_r};
+go_to={ alt_task_r, alt_task_l ,left_tool_task,right_tool_task};
+cooperation={alt_task_l, alt_task_r, coop_task};
 %Load Action Manager Class and load actions
 actionManager = ActionManager();
 actionManager.addAction(go_to);
+actionManager.addAction(cooperation);
 
 %Initiliaze robot interface
 robot_udp=UDP_interface(real_robot);
@@ -89,6 +118,10 @@ robot_udp=UDP_interface(real_robot);
 %Initialize logger
 logger=SimulationLogger(ceil(end_time/dt)+1,bm_sim,actionManager);
 
+
+
+
+%% loop 
 %Main simulation Loop
 for t = 0:dt:end_time
     % 1. Receive UDP packets - DO NOT EDIT
@@ -99,7 +132,17 @@ for t = 0:dt:end_time
     end
     % 2. Update Full kinematics of the bimanual system
     bm_sim.update_full_kinematics();
-    
+
+    if actionManager.currentAction == 1
+        % Simple error check: distance of Left Arm to goal
+        err_L = norm(bm_sim.left_arm.wTt(1:3,4) - w_pos_L);
+        err_R = norm(bm_sim.right_arm.wTt(1:3,4) - w_pos_R);
+        
+        if (err_L < 0.01 && err_R < 0.01)
+            disp('Grasp Achieved. Switching to Cooperative Phase.');
+            actionManager.setCurrentAction(2);
+        end
+    end
     % 3. Compute control commands for current action
     [q_dot]=actionManager.computeICAT(bm_sim);
 
@@ -114,6 +157,10 @@ for t = 0:dt:end_time
     bm_sim.time
     % 7. Optional real-time slowdown
     SlowdownToRealtime(dt);
+    current_alt_R=arm1.wTt(3,4);
+    fprintf("R:%f ", current_alt_R)
+    current_Alt_L=arm2.wTt(3,4);
+    fprintf("L: %f", current_Alt_L);
 end
 %Display joint position and velocity, Display for a given action, a number
 %of tasks

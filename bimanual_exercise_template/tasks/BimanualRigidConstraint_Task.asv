@@ -1,0 +1,34 @@
+classdef BimanualRigidConstraint_Task < Task
+    % Inequality task to keep the robot above a minimum altitude (Z > 0.15m)
+    
+    properties
+        tL_T_o
+        tR_T_o
+        wTog
+    end
+    
+    methods
+        function obj = BimanualRigidConstraint_Task(robot_ID, taskID)
+            obj.ID = 'BIMANUAL';
+            obj.task_name = taskID;
+            obj.tL_T_o = tL_T_o;
+            obj.tR_T_o = tR_T_o;
+            obj.wTog = wTog;
+        end
+        
+        function updateReference(obj, robot_system)
+            
+
+        end
+        
+        function updateJacobian(obj, robot_system)
+            
+        end
+        
+        function updateActivation(obj, robot_system)
+
+
+        end
+            
+    end
+end

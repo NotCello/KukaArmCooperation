@@ -28,6 +28,7 @@ classdef UDP_interface < handle
         end
 
         function [qL,qR] = udp_receive(obj,t)
+            deltat = 0.005;
             if obj.setup == true
                 dataLeft = step(obj.hudprLeft);
                 dataRight = step(obj.hudprRight);
@@ -54,7 +55,7 @@ classdef UDP_interface < handle
                 step(obj.hudpsLeft,[t;bms.left_arm.qdot]);
                 step(obj.hudpsRight,[t;bms.right_arm.qdot]);
             else
-                step(obj.hudps,[bms.left_arm.q,bms.right_arm.q])
+                step(obj.hudps,[bms.left_arm.q,bms.right_arm.q]);
             end
         
         end

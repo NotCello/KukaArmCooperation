@@ -66,7 +66,7 @@ classdef Task_Altitude < Task
             
             % 2. Get current Altitude (Z-coordinate of Tool Frame)
             % wTt is 4x4 matrix. Position Z is at (3,4).
-            current_alt = robot.wTt(3,4);
+            current_alt = robot.wTt(3,4)
             % current_alt_R = robot_R.wTt(3,4)
             
             
