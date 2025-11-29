@@ -1,18 +1,15 @@
 classdef BimanualRigidConstraint_Task < Task
-    % Task to move an object held rigidly by two robots
-    
     properties
-        % Relative transforms (Fixed once grasped)
-        tL_T_o % Transform from Left Tool to Object
-        tR_T_o % Transform from Right Tool to Object
+        % The "Invisible Sticks" (Constant Relative Transforms)
+        tL_T_o % Transform: Left Tool -> Object
+        tR_T_o % Transform: Right Tool -> Object
         
-        wTog   % Goal Frame for the Object
+        wTog   % Final Goal for the Object
     end
     
     methods
-        % Constructor
         function obj = BimanualRigidConstraint_Task(tL_T_o, tR_T_o, wTog, taskID)
-            obj.ID = 'BM'; % Bi-Manual
+            obj.ID = 'BM'; % Bi-Manual Task
             obj.task_name = taskID;
             obj.tL_T_o = tL_T_o;
             obj.tR_T_o = tR_T_o;
@@ -20,59 +17,59 @@ classdef BimanualRigidConstraint_Task < Task
         end
         
         function updateReference(obj, robot_system)
-            % 1. Compute current Object Frame (wTo)
-            % We can estimate it using the Left Arm and the fixed offset
+            % 1. Where is the object NOW? (Compute using Left Arm)
+            % wTo = wTt * tTo
             wTo_current = robot_system.left_arm.wTt * obj.tL_T_o;
             
-            % 2. Compute Error (Goal Object Frame vs Current Object Frame)
+            % 2. Error: Where should the object BE?
             [v_ang, v_lin] = CartError(obj.wTog, wTo_current);
             
-            % 3. Define Reference Velocity (12 Dimensions)
-            % We want BOTH arms to move the object to the goal.
-            % So we stack the object velocity request twice.
+            % 3. Velocity Reference
+            v_ref = [v_ang; v_lin];
+            v_ref = Saturate(v_ref, 0.2); % Safety limit
             
-            v_ref = 1.0 * [v_ang; v_lin];
-            
-            % Saturate for safety
-            v_ref(1:3) = Saturate(v_ref(1:3), 0.3);
-            v_ref(4:6) = Saturate(v_ref(4:6), 0.3);
-            
-            obj.xdotbar = [v_ref; v_ref]; % 12x1 Vector
+            % We want the OBJECT to move at v_ref.
+            % Since we control the object twice (Left chain, Right chain),
+            % we stack the reference:
+            obj.xdotbar = [v_ref; v_ref]; 
         end
         
         function updateJacobian(obj, robot_system)
-            % 1. Get Base Jacobians
-            JL = robot_system.left_arm.wJt;
-            JR = robot_system.right_arm.wJt;
+            % --- LEFT ROBOT ---
+            % 1. Get the "Lever Arm" (Vector r from Tool to Object)
+            % We use the orientation of the tool to rotate the relative vector into world frame
+            r_L = obj.tL_T_o(1:3,4); % Position offset in Tool Frame
+            w_r_L = robot_system.left_arm.wTt(1:3,1:3) * r_L; % Rotate to World Frame
             
-            % 2. Calculate Lever Arms (Vector from Tool to Object)
-            % w_r_to = w_pos_object - w_pos_tool
-            % Note: wTo = wTt * tTo
+            % 2. COMPUTE MATRIX S (Rigid Body Transform)
+            % [ I    0 ]
+            % [ -skew(r)  I ]
+            S_L = [eye(3), zeros(3); -skew(w_r_L), eye(3)];
             
-            wTo_L = robot_system.left_arm.wTt * obj.tL_T_o;
-            w_r_L = wTo_L(1:3,4) - robot_system.left_arm.wTt(1:3,4);
+            % 3. Transform the Tool Jacobian to Object Jacobian
+            % J_object = S * J_tool
+            J_L_obj = S_L * robot_system.left_arm.wJt;
             
-            wTo_R = robot_system.right_arm.wTt * obj.tR_T_o;
-            w_r_R = wTo_R(1:3,4) - robot_system.right_arm.wTt(1:3,4);
             
-            % 3. Compute Rigid Body Transformation Matrices
-            % [ I   0 ]
-            % [ -S  I ]
-            XL = [eye(3), zeros(3); -skew(w_r_L), eye(3)];
-            XR = [eye(3), zeros(3); -skew(w_r_R), eye(3)];
+            % --- RIGHT ROBOT ---
+            % 1. Lever Arm
+            r_R = obj.tR_T_o(1:3,4);
+            w_r_R = robot_system.right_arm.wTt(1:3,1:3) * r_R;
             
-            % 4. Compute Object Jacobians for each arm
-            J_obj_L = XL * JL;
-            J_obj_R = XR * JR;
+            % 2. COMPUTE MATRIX S
+            S_R = [eye(3), zeros(3); -skew(w_r_R), eye(3)];
             
-            % 5. Build Block Diagonal Jacobian (12 x 14)
-            % [ J_obj_L     0     ]
-            % [    0     J_obj_R  ]
-            obj.J = blkdiag(J_obj_L, J_obj_R); 
+            % 3. Object Jacobian
+            J_R_obj = S_R * robot_system.right_arm.wJt;
+            
+            
+            % --- COMBINE ---
+            % Block Diagonal Jacobian (12 x 14)
+            obj.J = blkdiag(J_L_obj, J_R_obj);
         end
         
         function updateActivation(obj, robot_system)
-            % Binary transition: Always Active (1)
+            % Binary transition (Always active in Phase 2)
             obj.A = eye(12);
         end
     end

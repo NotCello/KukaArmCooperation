@@ -5,6 +5,7 @@ addpath('./tools')
 addpath('./icat')
 addpath('./tasks')
 clc;clear;close all; 
+
 %Simulation Parameters
 dt = 0.005;
 end_time = 20;
@@ -17,7 +18,7 @@ real_robot = false;
 
 %Initiliaze panda_arm() Class, specifying the base offset w.r.t World Frame
 arm1=panda_arm(model,eye(4));
-%TO DO: TRANSFORMATION MATRIX FROM WORLD FRAME TO RIGHT ARM BASE FRAME
+% TRANSFORMATION MATRIX FROM WORLD FRAME TO RIGHT ARM BASE FRAME
 wTb2 =[-1 0 0 1.06;
     0 -1 0 -0.01;
     0 0 1 0;
@@ -33,137 +34,114 @@ w_obj_ori=eye(3);
 obj_length = 0.12; % 12 cm
 
 % --- 2. Calculate Goal POSITIONS (Grasping Points) ---
-% CHANGE: Use X-axis offsets (index 1), NOT Y-axis.
-
-% Left Arm Goal (Closer to Robot 1 at x=0)
-% We subtract length/2 from the center x=0.5 -> Target x = 0.44
+% Left Arm Goal (Grasp left side along X)
 w_pos_L = w_obj_pos - [obj_length/2; 0; 0]; 
-
-% Right Arm Goal (Closer to Robot 2 at x=1.06)
-% We add length/2 to the center x=0.5 -> Target x = 0.56
+% Right Arm Goal (Grasp right side along X)
 w_pos_R = w_obj_pos + [obj_length/2; 0; 0];
 
 % --- 3. Calculate Goal ORIENTATIONS ---
-% Assignment: "Goal orientation... is obtained by rotating the tool frames 30 deg around their y-axis"
-
+R_tilt = rotation(0, deg2rad(30), 0); 
 
 % Orientation for LEFT ARM
-% Rotate base 90 deg around Y so Z (gripper) points +X (towards object)
-R_EE_L = rotation(0, pi/2, 0); 
-R_tilt_L = rotation(0, deg2rad(30), 0); 
-w_ori_L  = R_EE_L * R_tilt_L;
+R_base_L = rotation(0, pi/2, 0); 
+w_ori_L  = R_base_L * R_tilt;
 
 % Orientation for RIGHT ARM
-% Rotate base -90 deg around Y so Z (gripper) points -X (towards object)
-% This creates the "opposing" grasp.
-R_EE_R = rotation(0, -pi/2, 0);
+% Note: Use negative tilt for symmetry
+R_base_R = rotation(0, -pi/2, 0);
 R_tilt_R = rotation(0, deg2rad(-30), 0); 
-w_ori_R  = R_EE_R * R_tilt_R;
+w_ori_R  = R_base_R * R_tilt_R;
 
 % --- 4. Call setGoal ---
-% Send these new targets to the robot objects
-arm1.setGoal(w_obj_pos, rotation(0,0,0), w_pos_L, w_ori_L);
-arm2.setGoal(w_obj_pos, rotation(0,0,0), w_pos_R, w_ori_R);
+arm1.setGoal(w_obj_pos, w_obj_ori, w_pos_L, w_ori_L);
+arm2.setGoal(w_obj_pos, w_obj_ori, w_pos_R, w_ori_R);
+
 %Define Object goal frame (Cooperative Motion)
-wTog=[rotation(0,0,0) [0.65, -0.35, 0.28]'; 0 0 0 1];
+wTog=[rotation(0,0,0) [0.65, -0.35, 0.35]'; 0 0 0 1];
 arm1.set_obj_goal(wTog)
 arm2.set_obj_goal(wTog)
 
-
-
-%% second step
+%% --- PHASE 2 PREPARATION ---
+% 1. Define Object Frame at Pickup
 wTo_initial=[w_obj_ori, w_obj_pos; 0 0 0 1];
+
+% 2. Define Theoretical Tool Frames at Grasp
 wTt_L_goal=[w_ori_L, w_pos_L; 0 0 0 1];
 wTt_R_goal=[w_ori_R, w_pos_R; 0 0 0 1];
 
-tL_T_o=inv(wTt_L_goal) * wTo_initial;
-tR_T_o=inv(wTt_R_goal) * wTo_initial;
+% 3. Calculate the Rigid Constraint Offsets ("Invisible Stick")
+% This must be done using the THEORETICAL goals, not the current robot pos!
+tL_T_o = inv(wTt_L_goal) * wTo_initial;
+tR_T_o = inv(wTt_R_goal) * wTo_initial;
 
-wTog = [rotation(0,0,0), [0.65; -0.35; 0.28]; 0 0 0 1];
-
-wTt_L_grasp = arm1.wTt; % Get actual tool pose
-wTo_grasp   = [eye(3), w_obj_pos; 0 0 0 1]; % Object is at w_obj_pos, no rotation
-tL_T_o      = inv(wTt_L_grasp) * wTo_grasp; % The magic "stick" matrix
-
-% Right Arm Offset
-wTt_R_grasp = arm2.wTt;
-tR_T_o      = inv(wTt_R_grasp) * wTo_grasp;
-
-% 2. DEFINE THE COOP TASK WITH OFFSETS
-% Pass these offsets to your CoopTask class!
-wTog = [rotation(0,0,0), [0.65; -0.35; 0.28]; 0 0 0 1]; % Final Goal
+% 4. Create the Cooperative Task
+% We use the offsets calculated above
 coop_task = BimanualRigidConstraint_Task(tL_T_o, tR_T_o, wTog, 'CoopMove');
 
-% coop_task=BimanualRigidConstraint_Task(tL_T_o,tR_T_o,wTog,'Coop');
-
-%Define Tasks, input values(Robot type(L,R,BM), Task Name)
+%Define Tasks
 left_tool_task=tool_task("L","LT");
 right_tool_task=tool_task("R","RT");
-
-
 alt_task_l=Task_Altitude("L","L_ALT");
 alt_task_r=Task_Altitude("R","R_ALT");
 
-%Actions for each phase: go to phase, coop_motion phase, end_motion phase
-go_to={ alt_task_r, alt_task_l ,left_tool_task,right_tool_task};
+%Actions
+go_to={alt_task_l, alt_task_r, left_tool_task, right_tool_task};
 cooperation={alt_task_l, alt_task_r, coop_task};
-%Load Action Manager Class and load actions
+
+%Load Action Manager
 actionManager = ActionManager();
-actionManager.addAction(go_to);
-actionManager.addAction(cooperation);
+actionManager.addAction(go_to);      % Action 1
+actionManager.addAction(cooperation); % Action 2
 
 %Initiliaze robot interface
 robot_udp=UDP_interface(real_robot);
-
 %Initialize logger
 logger=SimulationLogger(ceil(end_time/dt)+1,bm_sim,actionManager);
 
-
-
-
-%% loop 
-%Main simulation Loop
+%% Loop 
 for t = 0:dt:end_time
-    % 1. Receive UDP packets - DO NOT EDIT
+    % 1. Receive UDP packets
     [ql,qr]=robot_udp.udp_receive(t);
-    if real_robot==true %Only in real setup, assign current robot configuration as initial configuratio
+    if real_robot==true 
         bm_sim.left_arm.q=ql;
         bm_sim.right_arm.q=qr;
     end
-    % 2. Update Full kinematics of the bimanual system
+    
+    % 2. Update Full kinematics
     bm_sim.update_full_kinematics();
-
+    
+    % Switching Logic
     if actionManager.currentAction == 1
-        % Simple error check: distance of Left Arm to goal
         err_L = norm(bm_sim.left_arm.wTt(1:3,4) - w_pos_L);
         err_R = norm(bm_sim.right_arm.wTt(1:3,4) - w_pos_R);
         
-        if (err_L < 0.01 && err_R < 0.01)
+        if (err_L < 0.00001 && err_R < 0.00001)
             disp('Grasp Achieved. Switching to Cooperative Phase.');
             actionManager.setCurrentAction(2);
         end
     end
-    % 3. Compute control commands for current action
-    [q_dot]=actionManager.computeICAT(bm_sim);
-
-    % 4. Step the simulator (integrate velocities)
-    bm_sim.sim(q_dot);
     
-    % 5. Send updated state to Pybullet
+    % 3. Compute control commands
+    [q_dot]=actionManager.computeICAT(bm_sim);
+    % 4. Step the simulator
+    bm_sim.sim(q_dot);
+    % 5. Send updated state
     robot_udp.send(t,bm_sim)
-
-    % 6. Lggging
+    % 6. Logging
     logger.update(bm_sim.time,bm_sim.loopCounter)
     bm_sim.time
+    
     % 7. Optional real-time slowdown
     SlowdownToRealtime(dt);
-    current_alt_R=arm1.wTt(3,4);
-    fprintf("R:%f ", current_alt_R)
-    current_Alt_L=arm2.wTt(3,4);
-    fprintf("L: %f", current_Alt_L);
+    
+    % Debug Prints (Printing Wrist Position wTe)
+    % Note: Wrist will be higher (~0.38) than Object (~0.28)
+    current_alt_R=arm1.wTe(3,4);
+    fprintf("Wrist R Z:%f ", current_alt_R)
+    current_Alt_L=arm2.wTe(3,4);
+    fprintf("Wrist L Z: %f\n", current_Alt_L);
 end
-%Display joint position and velocity, Display for a given action, a number
-%of tasks
+
 action=1;
 tasks=[1];
 logger.plotAll(action,tasks);
