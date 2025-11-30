@@ -41,9 +41,8 @@ classdef BimanualRigidConstraint_Task < Task
             r_L = obj.tL_T_o(1:3,4); % Position offset in Tool Frame
             w_r_L = robot_system.left_arm.wTt(1:3,1:3) * r_L; % Rotate to World Frame
             
-            % 2. COMPUTE MATRIX S (Rigid Body Transform)
-            % [ I    0 ]
-            % [ -skew(r)  I ]
+              % MATRIX S (Rigid Body Transform)
+            
             S_L = [eye(3), zeros(3); -skew(w_r_L), eye(3)];
             
             % 3. Transform the Tool Jacobian to Object Jacobian
