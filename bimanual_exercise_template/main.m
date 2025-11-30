@@ -28,57 +28,56 @@ arm2=panda_arm(model,wTb2);
 %Initialize Bimanual Simulator Class
 bm_sim=bimanual_sim(dt,arm1,arm2,end_time);
 
-% --- 1. Define Object Parameters ---
+%% --- 1. Define Object Parameters ---
 w_obj_pos = [0.5; 0.0; 0.59];
 w_obj_ori=eye(3);
 obj_length = 0.12; % 12 cm
 
-% --- 2. Calculate Goal POSITIONS (Grasping Points) ---
+%% --- 2. Calculate Goal POSITIONS (Grasping Points) ---
 % Left Arm Goal (Grasp left side along X)
 w_pos_L = w_obj_pos - [obj_length/2; 0; 0]; 
 % Right Arm Goal (Grasp right side along X)
 w_pos_R = w_obj_pos + [obj_length/2; 0; 0];
 
-% --- 3. Calculate Goal ORIENTATIONS ---
+%% --- 3. Calculate Goal ORIENTATIONS ---
 R_tilt = rotation(0, deg2rad(30), 0); 
 
 % Orientation for LEFT ARM
-R_base_L = rotation(0, pi/2, 0); 
-w_ori_L  = R_base_L * R_tilt;
+R_EE_L = rotation(0, pi/2, 0); 
+w_ori_L  = R_EE_L * R_tilt;
 
 % Orientation for RIGHT ARM
 % Note: Use negative tilt for symmetry
-R_base_R = rotation(0, -pi/2, 0);
+R_EE_R = rotation(0, -pi/2, 0);
 R_tilt_R = rotation(0, deg2rad(-30), 0); 
-w_ori_R  = R_base_R * R_tilt_R;
+w_ori_R  = R_EE_R * R_tilt_R;
 
-% --- 4. Call setGoal ---
+%% --- 4. Call setGoal ---
 arm1.setGoal(w_obj_pos, w_obj_ori, w_pos_L, w_ori_L);
 arm2.setGoal(w_obj_pos, w_obj_ori, w_pos_R, w_ori_R);
 
-%Define Object goal frame (Cooperative Motion)
+%% STEP 3: Define Object goal frame (Cooperative Motion)
 wTog=[rotation(0,0,0) [0.65, -0.35, 0.35]'; 0 0 0 1];
 arm1.set_obj_goal(wTog)
 arm2.set_obj_goal(wTog)
 
-%% --- PHASE 2 PREPARATION ---
-% 1. Define Object Frame at Pickup
+%% 1. Define Object Frame at Pickup
 wTo_initial=[w_obj_ori, w_obj_pos; 0 0 0 1];
 
-% 2. Define Theoretical Tool Frames at Grasp
+%% 2. Define Theoretical Tool Frames at Grasp
 wTt_L_goal=[w_ori_L, w_pos_L; 0 0 0 1];
 wTt_R_goal=[w_ori_R, w_pos_R; 0 0 0 1];
 
-% 3. Calculate the Rigid Constraint Offsets ("Invisible Stick")
+%% 3. Calculate the Rigid Constraint Offsets ("Invisible Stick")
 % This must be done using the THEORETICAL goals, not the current robot pos!
 tL_T_o = inv(wTt_L_goal) * wTo_initial;
 tR_T_o = inv(wTt_R_goal) * wTo_initial;
 
-% 4. Create the Cooperative Task
+%% 4. Create the Cooperative Task
 % We use the offsets calculated above
 coop_task = BimanualRigidConstraint_Task(tL_T_o, tR_T_o, wTog, 'CoopMove');
 
-%Define Tasks
+%% Define Tasks
 left_tool_task=tool_task("L","LT");
 right_tool_task=tool_task("R","RT");
 alt_task_l=Task_Altitude("L","L_ALT");
@@ -87,11 +86,12 @@ alt_task_r=Task_Altitude("R","R_ALT");
 %Actions
 go_to={alt_task_l, alt_task_r, left_tool_task, right_tool_task};
 cooperation={alt_task_l, alt_task_r, coop_task};
-
+stop_task={alt_task_r,alt_task_l};
 %Load Action Manager
 actionManager = ActionManager();
 actionManager.addAction(go_to);      % Action 1
 actionManager.addAction(cooperation); % Action 2
+actionManager.addAction(stop_task);
 
 %Initiliaze robot interface
 robot_udp=UDP_interface(real_robot);
@@ -137,12 +137,34 @@ for t = 0:dt:end_time
     % Debug Prints (Printing Wrist Position wTe)
     % Note: Wrist will be higher (~0.38) than Object (~0.28)
     current_alt_R=arm1.wTe(3,4);
-    fprintf("Wrist R Z:%f ", current_alt_R)
+    % fprintf("Right ARM :%f \n", tL_T_o(:,3));
     current_Alt_L=arm2.wTe(3,4);
-    fprintf("Wrist L Z: %f\n", current_Alt_L);
+    % fprintf("Wrist L Z: %f\n", tR_T_o(:,3));
+
+    if actionManager.currentAction == 2
+        %where is the obj
+        wTo_current = bm_sim.left_arm.wTt * tL_T_o;
+            
+        % 2. Error: Where should the object BE?
+        err_L = norm(wTo_current(1:3,4) - wTog(1:3,4))
+        % disp(err_L);
+        
+        if (err_L < 0.01)
+            disp('FINISH');
+            
+            actionManager.setCurrentAction(3);
+            
+        end
+    end
+    if actionManager.currentAction==3
+        arm1.qdot=0;
+        arm2.qdot=0;
+    end
+
+
 end
 
-action=1;
+action=3;
 tasks=[1];
 logger.plotAll(action,tasks);
 end
